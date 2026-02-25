@@ -59,6 +59,17 @@ elif [[ -f /usr/local/bin/brew ]]; then
     eval "$(/usr/local/bin/brew shellenv)"
 fi
 
+# Ensure pyenv shims are in PATH (ahead of Homebrew)
+if [[ -d "${HOME}/.pyenv" ]]; then
+    export PYENV_ROOT="${HOME}/.pyenv"
+    export PATH="${PYENV_ROOT}/shims:${PATH}"
+fi
+
+# Ensure npm global bin is in PATH
+if [[ -d "${HOME}/.npm-global/bin" ]]; then
+    export PATH="${HOME}/.npm-global/bin:${PATH}"
+fi
+
 # ─── Start ──────────────────────────────────────────────────────
 log "Daily macOS update started"
 log "Hostname: $(hostname)"
@@ -146,7 +157,7 @@ fi
 # ─── 6. npm Global Packages ────────────────────────────────────
 section "npm Global Packages"
 if command -v npm &>/dev/null; then
-    run_step "Updating global npm packages" "sudo npm update -g"
+    run_step "Updating global npm packages" "npm update -g"
 
     NPM_OUTDATED=$(npm outdated -g 2>/dev/null || true)
     if [[ -z "$NPM_OUTDATED" ]]; then
@@ -158,7 +169,7 @@ if command -v npm &>/dev/null; then
     fi
 
     run_step "Updating MCP filesystem server" \
-        "sudo npm install -g @modelcontextprotocol/server-filesystem@latest"
+        "npm install -g @modelcontextprotocol/server-filesystem@latest"
 else
     log "  npm not found — skipping"
     add_summary "npm: Not installed"
