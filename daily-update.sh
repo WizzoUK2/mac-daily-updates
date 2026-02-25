@@ -146,7 +146,7 @@ fi
 # ─── 6. npm Global Packages ────────────────────────────────────
 section "npm Global Packages"
 if command -v npm &>/dev/null; then
-    run_step "Updating global npm packages" "npm update -g"
+    run_step "Updating global npm packages" "sudo npm update -g"
 
     NPM_OUTDATED=$(npm outdated -g 2>/dev/null || true)
     if [[ -z "$NPM_OUTDATED" ]]; then
@@ -158,7 +158,7 @@ if command -v npm &>/dev/null; then
     fi
 
     run_step "Updating MCP filesystem server" \
-        "npm install -g @modelcontextprotocol/server-filesystem@latest"
+        "sudo npm install -g @modelcontextprotocol/server-filesystem@latest"
 else
     log "  npm not found — skipping"
     add_summary "npm: Not installed"
@@ -168,7 +168,7 @@ fi
 section "Python (pip3)"
 if command -v pip3 &>/dev/null; then
     run_step "Upgrading pip, setuptools, wheel" \
-        "pip3 install --upgrade pip setuptools wheel --break-system-packages"
+        "pip3 install --upgrade pip setuptools wheel"
 
     PIP_OUTDATED=$(pip3 list --outdated --format=columns 2>/dev/null || true)
     if [[ -z "$PIP_OUTDATED" ]] || [[ "$PIP_OUTDATED" == *"Package"*"Version"* ]] && [[ $(echo "$PIP_OUTDATED" | wc -l) -le 2 ]]; then
