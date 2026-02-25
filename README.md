@@ -1,6 +1,6 @@
 # Mac Daily Updates
 
-A shell script that automates daily maintenance on macOS — keeping Homebrew, npm, pip3, Mac App Store apps, VS Code, and system tools up to date.
+A shell script that automates daily maintenance on macOS — keeping Homebrew, npm, pip3, Ruby gems, Mac App Store apps, VS Code, and system tools up to date.
 
 ## What it does
 
@@ -11,7 +11,8 @@ A shell script that automates daily maintenance on macOS — keeping Homebrew, n
 5. **Homebrew cleanup** — removes old versions and runs `brew doctor`
 6. **npm global packages** — updates all global packages + MCP filesystem server
 7. **pip3** — upgrades core tools (pip, setuptools, wheel) and reports outdated packages
-8. **VS Code** — checks for updates and refreshes all extensions
+8. **Ruby Gems** — updates RubyGems system, upgrades installed gems, and cleans up old versions
+9. **VS Code** — checks for updates and refreshes all extensions
 
 ## Usage
 
@@ -64,4 +65,5 @@ Logs are written to `~/.local/log/daily-update-YYYY-MM-DD.log`.
 - [Homebrew](https://brew.sh)
 - Node.js / npm (for global package updates)
 - Python 3 / pip3
+- Ruby / gem (for gem updates)
 - [mas](https://github.com/mas-cli/mas) (auto-installed if missing)
