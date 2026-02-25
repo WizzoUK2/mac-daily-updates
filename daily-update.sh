@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # daily-update.sh — Daily macOS maintenance script
-# Keeps Homebrew, npm, pip3, Mac App Store, VS Code, and system tools up to date.
+# Keeps Homebrew, npm, pip3, Ruby gems, Mac App Store, VS Code, and system tools up to date.
 #
 # Usage:
 #   ./daily-update.sh          # Run all updates
@@ -185,7 +185,28 @@ else
     add_summary "pip3: Not installed"
 fi
 
-# ─── 8. VS Code ────────────────────────────────────────────────
+# ─── 8. Ruby Gems ─────────────────────────────────────────────
+section "Ruby Gems"
+if command -v gem &>/dev/null; then
+    run_step "Updating RubyGems system" "gem update --system"
+    run_step "Updating installed gems" "gem update"
+    run_step "Cleaning up old gem versions" "gem cleanup"
+
+    GEM_OUTDATED=$(gem outdated 2>/dev/null || true)
+    if [[ -z "$GEM_OUTDATED" ]]; then
+        add_summary "Ruby Gems: Up to date"
+    else
+        log "  Still outdated:"
+        echo "$GEM_OUTDATED" | tee -a "$LOG_FILE"
+        OUTDATED_COUNT=$(echo "$GEM_OUTDATED" | wc -l | tr -d ' ')
+        add_summary "Ruby Gems: ${OUTDATED_COUNT} gem(s) still outdated (see log)"
+    fi
+else
+    log "  gem not found — skipping"
+    add_summary "Ruby Gems: Not installed"
+fi
+
+# ─── 9. VS Code ────────────────────────────────────────────────
 section "VS Code"
 if command -v code &>/dev/null; then
     run_step "Checking for VS Code updates" "code --update"
