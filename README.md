@@ -27,7 +27,7 @@ A shell script that automates daily maintenance on macOS — keeping Homebrew, n
 ## Installation
 
 ```bash
-git clone https://github.com/WizzoUK2/mac-daily-updates.git
+git clone https://github.com/Wicked-Sick-Ltd/mac-daily-updates.git
 cd mac-daily-updates
 chmod +x daily-update.sh
 ```
