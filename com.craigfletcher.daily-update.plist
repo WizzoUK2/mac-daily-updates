@@ -9,7 +9,7 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>$HOME/mac-daily-updates/daily-update.sh</string>
+        <string>$HOME/Documents/GitHub/mac-daily-updates/daily-update.sh</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
