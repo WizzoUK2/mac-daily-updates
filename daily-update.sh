@@ -45,6 +45,21 @@ run_step() {
         log "  [dry-run] Would execute: $*"
         return 0
     fi
+    if "$@" >> "$LOG_FILE" 2>&1; then
+        log "  ✓ Done"
+    else
+        log "  ✗ Failed (exit code $?) — continuing..."
+    fi
+}
+
+run_step_eval() {
+    local description="$1"
+    shift
+    log "→ $description"
+    if $DRY_RUN; then
+        log "  [dry-run] Would execute: $*"
+        return 0
+    fi
     if eval "$@" >> "$LOG_FILE" 2>&1; then
         log "  ✓ Done"
     else
@@ -70,6 +85,12 @@ if [[ -d "${HOME}/.npm-global/bin" ]]; then
     export PATH="${HOME}/.npm-global/bin:${PATH}"
 fi
 
+# Use user-writable gem directory instead of system /Library/Ruby/Gems
+if command -v ruby &>/dev/null; then
+    export GEM_HOME="${HOME}/.gem/ruby/$(ruby -e 'puts RbConfig::CONFIG["ruby_version"]')"
+    export PATH="${GEM_HOME}/bin:${PATH}"
+fi
+
 # ─── Start ──────────────────────────────────────────────────────
 log "Daily macOS update started"
 log "Hostname: $(hostname)"
@@ -85,7 +106,13 @@ add_summary() {
 
 # ─── 1. macOS Software Updates ──────────────────────────────────
 section "macOS Software Updates"
-MACOS_UPDATES=$(softwareupdate -l 2>&1 || true)
+if command -v gtimeout &>/dev/null; then
+    MACOS_UPDATES=$(gtimeout 120 softwareupdate -l 2>&1 || true)
+elif command -v timeout &>/dev/null; then
+    MACOS_UPDATES=$(timeout 120 softwareupdate -l 2>&1 || true)
+else
+    MACOS_UPDATES=$(softwareupdate -l 2>&1 || true)
+fi
 if echo "$MACOS_UPDATES" | grep -q "No new software available"; then
     log "  macOS is up to date"
     add_summary "macOS: Up to date"
@@ -98,18 +125,23 @@ fi
 # ─── 2. Mac App Store (mas) ─────────────────────────────────────
 section "Mac App Store"
 if ! command -v mas &>/dev/null; then
-    run_step "Installing mas (Mac App Store CLI)" "brew install mas"
+    run_step "Installing mas (Mac App Store CLI)" brew install mas
 fi
 if command -v mas &>/dev/null; then
-    MAS_OUTDATED=$(mas outdated 2>/dev/null || true)
-    if [[ -z "$MAS_OUTDATED" ]]; then
-        log "  All App Store apps are up to date"
-        add_summary "App Store: Up to date"
+    if ! mas account &>/dev/null; then
+        log "  Not signed into App Store — skipping"
+        add_summary "App Store: Skipped (not signed in)"
     else
-        log "  Outdated apps:"
-        echo "$MAS_OUTDATED" | tee -a "$LOG_FILE"
-        run_step "Upgrading App Store apps" "mas upgrade"
-        add_summary "App Store: Updated $(echo "$MAS_OUTDATED" | wc -l | tr -d ' ') app(s)"
+        MAS_OUTDATED=$(mas outdated 2>/dev/null || true)
+        if [[ -z "$MAS_OUTDATED" ]]; then
+            log "  All App Store apps are up to date"
+            add_summary "App Store: Up to date"
+        else
+            log "  Outdated apps:"
+            echo "$MAS_OUTDATED" | tee -a "$LOG_FILE"
+            run_step "Upgrading App Store apps" mas upgrade
+            add_summary "App Store: Updated $(echo "$MAS_OUTDATED" | wc -l | tr -d ' ') app(s)"
+        fi
     fi
 else
     log "  mas not available — skipping"
@@ -118,7 +150,7 @@ fi
 
 # ─── 3. Homebrew ────────────────────────────────────────────────
 section "Homebrew"
-run_step "Updating Homebrew" "brew update"
+run_step "Updating Homebrew" brew update
 
 BREW_OUTDATED=$(brew outdated 2>/dev/null || true)
 if [[ -z "$BREW_OUTDATED" ]]; then
@@ -126,7 +158,7 @@ if [[ -z "$BREW_OUTDATED" ]]; then
     add_summary "Homebrew formulae: Up to date"
 else
     log "  Outdated formulae: $BREW_OUTDATED"
-    run_step "Upgrading formulae" "brew upgrade"
+    run_step "Upgrading formulae" brew upgrade
     add_summary "Homebrew formulae: Upgraded $(echo "$BREW_OUTDATED" | wc -l | tr -d ' ') package(s)"
 fi
 
@@ -138,26 +170,33 @@ if [[ -z "$CASK_OUTDATED" ]]; then
     add_summary "Homebrew casks: Up to date"
 else
     log "  Outdated casks: $CASK_OUTDATED"
-    run_step "Upgrading casks" "brew upgrade --cask"
+    run_step "Upgrading casks" brew upgrade --cask
     add_summary "Homebrew casks: Upgraded $(echo "$CASK_OUTDATED" | wc -l | tr -d ' ') cask(s)"
 fi
 
 # ─── 5. Homebrew Cleanup ────────────────────────────────────────
 section "Homebrew Cleanup"
-run_step "Cleaning up old versions" "brew cleanup"
-run_step "Running brew doctor" "brew doctor"
-
-DOCTOR_OUTPUT=$(brew doctor 2>&1 || true)
-if echo "$DOCTOR_OUTPUT" | grep -q "Your system is ready to brew"; then
-    add_summary "Homebrew health: Clean"
+run_step "Cleaning up old versions" brew cleanup
+log "→ Running brew doctor"
+if $DRY_RUN; then
+    log "  [dry-run] Would execute: brew doctor"
+    add_summary "Homebrew health: Skipped (dry run)"
 else
-    add_summary "Homebrew health: Warnings found (see log)"
+    DOCTOR_OUTPUT=$(brew doctor 2>&1 || true)
+    echo "$DOCTOR_OUTPUT" >> "$LOG_FILE"
+    if echo "$DOCTOR_OUTPUT" | grep -q "Your system is ready to brew"; then
+        log "  ✓ Done"
+        add_summary "Homebrew health: Clean"
+    else
+        log "  ✗ Warnings found"
+        add_summary "Homebrew health: Warnings found (see log)"
+    fi
 fi
 
 # ─── 6. npm Global Packages ────────────────────────────────────
 section "npm Global Packages"
 if command -v npm &>/dev/null; then
-    run_step "Updating global npm packages" "npm update -g"
+    run_step "Updating global npm packages" npm update -g
 
     NPM_OUTDATED=$(npm outdated -g 2>/dev/null || true)
     if [[ -z "$NPM_OUTDATED" ]]; then
@@ -169,7 +208,7 @@ if command -v npm &>/dev/null; then
     fi
 
     run_step "Updating MCP filesystem server" \
-        "npm install -g @modelcontextprotocol/server-filesystem@latest"
+        npm install -g @modelcontextprotocol/server-filesystem@latest
 else
     log "  npm not found — skipping"
     add_summary "npm: Not installed"
@@ -179,10 +218,10 @@ fi
 section "Python (pip3)"
 if command -v pip3 &>/dev/null; then
     run_step "Upgrading pip, setuptools, wheel" \
-        "pip3 install --upgrade pip setuptools wheel"
+        pip3 install --upgrade pip setuptools wheel
 
     PIP_OUTDATED=$(pip3 list --outdated --format=columns 2>/dev/null || true)
-    if [[ -z "$PIP_OUTDATED" ]] || [[ "$PIP_OUTDATED" == *"Package"*"Version"* ]] && [[ $(echo "$PIP_OUTDATED" | wc -l) -le 2 ]]; then
+    if [[ -z "$PIP_OUTDATED" ]] || { [[ "$PIP_OUTDATED" == *"Package"*"Version"* ]] && [[ $(echo "$PIP_OUTDATED" | wc -l) -le 2 ]]; }; then
         log "  All pip3 packages are up to date"
         add_summary "pip3: Up to date"
     else
@@ -199,9 +238,9 @@ fi
 # ─── 8. Ruby Gems ─────────────────────────────────────────────
 section "Ruby Gems"
 if command -v gem &>/dev/null; then
-    run_step "Updating RubyGems system" "gem update --system"
-    run_step "Updating installed gems" "gem update"
-    run_step "Cleaning up old gem versions" "gem cleanup"
+    run_step "Updating RubyGems system" gem update --system
+    run_step "Updating installed gems" gem update --no-document
+    run_step "Cleaning up old gem versions" gem cleanup
 
     GEM_OUTDATED=$(gem outdated 2>/dev/null || true)
     if [[ -z "$GEM_OUTDATED" ]]; then
@@ -220,8 +259,8 @@ fi
 # ─── 9. VS Code ────────────────────────────────────────────────
 section "VS Code"
 if command -v code &>/dev/null; then
-    run_step "Checking for VS Code updates" "code --update"
-    run_step "Updating all VS Code extensions" \
+    run_step "Checking for VS Code updates" code --update
+    run_step_eval "Updating all VS Code extensions" \
         "code --list-extensions | xargs -L 1 code --install-extension --force"
     add_summary "VS Code: Extensions refreshed"
 else
@@ -232,7 +271,7 @@ fi
 # ─── Summary ────────────────────────────────────────────────────
 section "Summary"
 log ""
-echo -e "$SUMMARY" | tee -a "$LOG_FILE"
+printf '%b\n' "$SUMMARY" | tee -a "$LOG_FILE"
 log ""
 log "Daily update complete. Full log: $LOG_FILE"
 log "─────────────────────────────────────────────────────────────"

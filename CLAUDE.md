@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A single-file bash script (`daily-update.sh`) that automates daily macOS maintenance — updating Homebrew, npm, pip3, Ruby gems, Mac App Store apps, VS Code, and system software. Designed to run unattended via launchd or cron.
+A single-file bash script (`daily-update.sh`) that automates daily macOS maintenance — updating Homebrew, npm, pip3, Ruby gems, Mac App Store apps, VS Code, and system software. Designed to run unattended via launchd or cron. There is no build step, test suite, or linter.
 
 ## Running
 
@@ -12,8 +12,6 @@ A single-file bash script (`daily-update.sh`) that automates daily macOS mainten
 ./daily-update.sh            # Run all updates
 ./daily-update.sh --dry-run  # Preview without making changes
 ```
-
-There is no build step, test suite, or linter. This is a standalone bash script.
 
 ## Architecture
 
@@ -29,13 +27,25 @@ There is no build step, test suite, or linter. This is a standalone bash script.
 9. VS Code + extensions
 
 **Key design patterns:**
-- **Fail-soft execution** — individual step failures are logged with `✗` but don't halt the script. The `run_step()` helper wraps `eval` with error capture and continues on failure.
+- **Fail-soft execution** — `run_step()` wraps `eval` with error capture; failures log `✗` but don't halt the script.
+- **No sudo** — the script runs entirely as the current user. npm, pip3, and gem are configured to use user-writable directories (see Environment Setup below).
 - **Platform detection** — auto-detects Apple Silicon (`/opt/homebrew`) vs Intel (`/usr/local`) Homebrew paths.
-- **Graceful degradation** — tools not found (npm, pip3, gem, VS Code, mas) are skipped with a log message.
+- **Graceful degradation** — missing tools (npm, pip3, gem, VS Code, mas) are skipped with a log message.
 - **Dry-run mode** — `--dry-run` flag causes `run_step()` to log commands without executing them.
-- **Logging** — all output goes to `~/.local/log/daily-update-YYYY-MM-DD.log` via the `log()` helper (tee to stdout + file). A summary section is built with `add_summary()` and printed at the end.
+- **Logging** — all output goes to `~/.local/log/daily-update-YYYY-MM-DD.log` via `log()` (tee to stdout + file). `add_summary()` collects results printed at the end.
 
-**`com.craigfletcher.daily-update.plist`** is a macOS LaunchAgent config that schedules the script to run daily at 6 AM.
+**`com.craigfletcher.daily-update.plist`** is a macOS LaunchAgent config that schedules the script daily at 6 AM. Note: the plist hardcodes the script path as `$HOME/mac-daily-updates/daily-update.sh`.
+
+## Environment Setup (lines 55–77)
+
+The script configures its own PATH before running any updates — this is critical for unattended execution where the user's shell profile isn't loaded:
+
+- **Homebrew** — sources `brew shellenv` from the detected prefix
+- **pyenv** — prepends `~/.pyenv/shims` to PATH so `pip3` resolves to pyenv's Python, avoiding Homebrew's externally-managed Python
+- **npm** — prepends `~/.npm-global/bin` to PATH (npm's global prefix is set to `~/.npm-global` to avoid `/usr/local` permission issues)
+- **Ruby gems** — sets `GEM_HOME=~/.gem/ruby/<version>` so `gem install/update` writes to a user-owned directory instead of `/Library/Ruby/Gems`
+
+When adding a new update section that depends on a tool installed in a non-standard location, add the PATH setup in this block.
 
 ## Shell Conventions
 
