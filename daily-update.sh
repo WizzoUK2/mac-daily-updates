@@ -22,8 +22,25 @@ if [[ "${1:-}" == "--dry-run" ]]; then
     DRY_RUN=true
 fi
 
+# ─── Lock file (prevent concurrent runs) ─────────────────────
+LOCK_FILE="/tmp/daily-update.lock"
+if [[ -f "$LOCK_FILE" ]]; then
+    LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+    if [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
+        echo "Another instance is already running (PID $LOCK_PID). Exiting."
+        exit 1
+    fi
+    # Stale lock file from a crashed run — remove it
+    rm -f "$LOCK_FILE"
+fi
+echo $$ > "$LOCK_FILE"
+trap 'rm -f "$LOCK_FILE"' EXIT
+
 # ─── Helpers ────────────────────────────────────────────────────
 mkdir -p "$LOG_DIR"
+
+# Rotate logs older than 30 days
+find "$LOG_DIR" -name 'daily-update-*.log' -mtime +30 -delete 2>/dev/null || true
 
 log() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -52,18 +69,16 @@ run_step() {
     fi
 }
 
-run_step_eval() {
-    local description="$1"
+timeout_cmd() {
+    local seconds="$1"
     shift
-    log "→ $description"
-    if $DRY_RUN; then
-        log "  [dry-run] Would execute: $*"
-        return 0
-    fi
-    if eval "$@" >> "$LOG_FILE" 2>&1; then
-        log "  ✓ Done"
+    if command -v gtimeout &>/dev/null; then
+        gtimeout "$seconds" "$@"
+    elif command -v timeout &>/dev/null; then
+        timeout "$seconds" "$@"
     else
-        log "  ✗ Failed (exit code $?) — continuing..."
+        # Portable fallback using perl (always available on macOS)
+        perl -e 'alarm(shift @ARGV); exec @ARGV' "$seconds" "$@"
     fi
 }
 
@@ -99,20 +114,14 @@ if $DRY_RUN; then
     log "*** DRY RUN MODE — no changes will be made ***"
 fi
 
-SUMMARY=""
+SUMMARY=()
 add_summary() {
-    SUMMARY="${SUMMARY}\n  $1"
+    SUMMARY+=("  $1")
 }
 
 # ─── 1. macOS Software Updates ──────────────────────────────────
 section "macOS Software Updates"
-if command -v gtimeout &>/dev/null; then
-    MACOS_UPDATES=$(gtimeout 120 softwareupdate -l 2>&1 || true)
-elif command -v timeout &>/dev/null; then
-    MACOS_UPDATES=$(timeout 120 softwareupdate -l 2>&1 || true)
-else
-    MACOS_UPDATES=$(softwareupdate -l 2>&1 || true)
-fi
+MACOS_UPDATES=$(timeout_cmd 120 softwareupdate -l 2>&1 || true)
 if echo "$MACOS_UPDATES" | grep -q "No new software available"; then
     log "  macOS is up to date"
     add_summary "macOS: Up to date"
@@ -128,20 +137,15 @@ if ! command -v mas &>/dev/null; then
     run_step "Installing mas (Mac App Store CLI)" brew install mas
 fi
 if command -v mas &>/dev/null; then
-    if ! mas account &>/dev/null; then
-        log "  Not signed into App Store — skipping"
-        add_summary "App Store: Skipped (not signed in)"
+    MAS_OUTDATED=$(mas outdated 2>/dev/null || true)
+    if [[ -z "$MAS_OUTDATED" ]]; then
+        log "  All App Store apps are up to date"
+        add_summary "App Store: Up to date"
     else
-        MAS_OUTDATED=$(mas outdated 2>/dev/null || true)
-        if [[ -z "$MAS_OUTDATED" ]]; then
-            log "  All App Store apps are up to date"
-            add_summary "App Store: Up to date"
-        else
-            log "  Outdated apps:"
-            echo "$MAS_OUTDATED" | tee -a "$LOG_FILE"
-            run_step "Upgrading App Store apps" mas upgrade
-            add_summary "App Store: Updated $(echo "$MAS_OUTDATED" | wc -l | tr -d ' ') app(s)"
-        fi
+        log "  Outdated apps:"
+        echo "$MAS_OUTDATED" | tee -a "$LOG_FILE"
+        run_step "Upgrading App Store apps" mas upgrade
+        add_summary "App Store: Updated $(echo "$MAS_OUTDATED" | wc -l | tr -d ' ') app(s)"
     fi
 else
     log "  mas not available — skipping"
@@ -259,9 +263,8 @@ fi
 # ─── 9. VS Code ────────────────────────────────────────────────
 section "VS Code"
 if command -v code &>/dev/null; then
-    run_step "Checking for VS Code updates" code --update
-    run_step_eval "Updating all VS Code extensions" \
-        "code --list-extensions | xargs -L 1 code --install-extension --force"
+    run_step "Updating all VS Code extensions" \
+        bash -c 'code --list-extensions | xargs -L 1 code --install-extension --force'
     add_summary "VS Code: Extensions refreshed"
 else
     log "  VS Code CLI not found — skipping"
@@ -271,7 +274,7 @@ fi
 # ─── Summary ────────────────────────────────────────────────────
 section "Summary"
 log ""
-printf '%b\n' "$SUMMARY" | tee -a "$LOG_FILE"
+printf '%s\n' "${SUMMARY[@]}" | tee -a "$LOG_FILE"
 log ""
 log "Daily update complete. Full log: $LOG_FILE"
 log "─────────────────────────────────────────────────────────────"

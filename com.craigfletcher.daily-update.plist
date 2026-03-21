@@ -4,6 +4,7 @@
 <dict>
     <key>Label</key>
     <string>com.craigfletcher.daily-update</string>
+    <!-- $HOME is expanded by bash -c; if switching to direct execution, use an absolute path -->
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
